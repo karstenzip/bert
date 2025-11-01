@@ -1,7 +1,7 @@
 requests==2.32.4
 py-cord[voice]==2.6.1
 wavelink==3.4.1
-python-dotenv==1.1.0
+python-dotenv==1.2.1
 pocketbase-async==0.11.0
 coloredlogs==15.0.1
 feedparser==6.0.11

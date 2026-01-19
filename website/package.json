@@ -11,6 +11,7 @@
 		"lint": "eslint .",
 		"update-types": "supabase gen types --project-id kydqrmqhwfbzbiqeobhi > shared/types/database.ts"
 	},
+	"packageManager": "bun@1.3.6",
 	"dependencies": {
 		"@formkit/auto-animate": "^0.9.0",
 		"@iconify-json/fluent": "^1.2.37",

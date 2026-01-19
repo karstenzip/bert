@@ -3,14 +3,13 @@ services:
   bert:
     container_name: bert
     build: bot
-    image: codeman1o1/bert
+    image: karsten.zip/bert
     env_file:
       - .env
+      - bot.env
     volumes:
       - ./bot/sounds:/usr/src/app/sounds
     depends_on:
-      pocketbase:
-        condition: service_healthy
       lavalink:
         condition: service_healthy
     restart: unless-stopped
@@ -18,35 +17,15 @@ services:
   website:
     container_name: bert-website
     build: website
-    image: codeman1o1/bertsite
+    image: karsten.zip/bertsite
     ports:
       - "6969:3000"
     env_file:
       - .env
-    restart: unless-stopped
-
-  pocketbase:
-    container_name: bert-pocketbase
-    build:
-      context: pocketbase
-      args:
-        - VERSION=0.22.10
-        - PB_EMAIL=${PB_EMAIL}
-        - PB_PASSWORD=${PB_PASSWORD}
-    image: codeman1o1/bert-pocketbase
-    healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://localhost:8090/api/health || exit 1
-      interval: 1s
-      timeout: 2s
-      retries: 5
-    env_file:
-      - .env
-    ports:
-      - 8090:8090
-    volumes:
-      - pocketbase:/pb_data
-      - ./pocketbase/pb_data/types.d.ts:/pb_data/types.d.ts
-      - ./pocketbase/migrations:/pb_migrations
+      - website.env
+    environment:
+      NUXT_DISCORD_BOT_TOKEN: ${BOT_TOKEN}
+      NUXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
     restart: unless-stopped
 
   lavalink:
@@ -69,6 +48,3 @@ services:
       - ./lavalink.yml:/opt/Lavalink/application.yml
       - ./bot/sounds:/opt/Lavalink/sounds
     restart: unless-stopped
-
-volumes:
-  pocketbase:

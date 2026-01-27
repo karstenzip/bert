@@ -25,16 +25,6 @@ definePageMeta({
 const supabase = useSupabaseClient()
 const user = useSupabaseUser()
 
-watch(
-	user,
-	() => {
-		if (user.value) {
-			return navigateTo("/dashboard")
-		}
-	},
-	{ immediate: true }
-)
-
 async function login() {
 	const { error } = await supabase.auth.signInWithOAuth({
 		provider: "discord",

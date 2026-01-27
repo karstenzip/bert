@@ -29,7 +29,7 @@ async function login() {
 	const { error } = await supabase.auth.signInWithOAuth({
 		provider: "discord",
 		options: {
-			redirectTo: "http://localhost:6969/auth"
+			redirectTo: `${window.location.origin}/auth`
 		}
 	})
 	if (error) console.log(error)

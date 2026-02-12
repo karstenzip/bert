@@ -482,7 +482,8 @@ async def on_wavelink_track_end(payload: wavelink.TrackEndEventPayload):
 			bye_sound = await wavelink.Playable.search(
 				f"sounds/{choice(sounds)}", source=None
 			)
-			await payload.player.play(bye_sound[0])
+			if bye_sound:
+				await payload.player.play(bye_sound[0])
 		else:
 			await payload.player.disconnect()
 

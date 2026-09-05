@@ -6,6 +6,6 @@ export default defineCachedFunction(
 	},
 	{
 		name: "discordUser",
-		maxAge: 60 * 60 * 1000 // 1 hour
+		maxAge: 60 * 60 // 1 hour
 	}
 )

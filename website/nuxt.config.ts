@@ -23,7 +23,7 @@ export default defineNuxtConfig({
 		}
 	},
 	typescript: {
-		typeCheck: false // TODO: Enable when vue-tsc supports Bun
+		typeCheck: true
 	},
 	css: ["~/assets/css/darkmode.css", "~/assets/css/main.css"],
 	icon: {
@@ -41,6 +41,7 @@ export default defineNuxtConfig({
 	},
 	ssr: false,
 	nitro: {
+		preset: "bun",
 		imports: {
 			imports: [{ name: "*", as: "z", from: "zod/v4" }]
 		}

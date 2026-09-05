@@ -1,0 +1,15 @@
+@media (prefers-color-scheme: dark) {
+	body {
+		background-color: #1e293b;
+	}
+
+	:not(svg):not(:empty) {
+		color: rgb(229 231 235);
+	}
+}
+
+@media (prefers-color-scheme: light) {
+	:not(svg):not(:empty) {
+		color: black;
+	}
+}

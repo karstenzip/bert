@@ -2,6 +2,13 @@ import logging
 import re
 
 import coloredlogs
+import discord
+from discord.ext import commands
+
+bert = commands.Bot(
+	command_prefix="bert ",
+	intents=discord.Intents.all(),
+)
 
 
 class LogFilter(logging.Filter):

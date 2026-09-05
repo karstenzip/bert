@@ -1,19 +1,19 @@
 import os
 from datetime import timedelta
-from typing import List
 
 import discord
 from discord.commands import option
 from discord.ext import commands
-from generic import logger
 from ollama import AsyncClient
+
+from generic import logger
 
 ollama = AsyncClient(os.getenv("OLLAMA_URL"))
 
 TOO_LONG_MSG = " **[MESSAGE TOO LONG]**"
 
 
-async def download_ai_models(models: List[str]):
+async def download_ai_models(models: list[str]):
 	"""Download the AI models from the Ollama server."""
 	downloaded_models = await ollama.list()
 	for model in models.copy():

@@ -22,22 +22,20 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
         run: |
           cd website
-          npm ci
+          bun ci
 
       - name: Run ESLint
         run: |
           cd website
-          npm run lint
+          bun run lint
 
   ruff:
     name: Ruff
@@ -45,12 +43,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install dependencies
         run: |

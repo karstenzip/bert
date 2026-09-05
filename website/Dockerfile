@@ -1,17 +1,22 @@
-FROM node:20-alpine
+FROM oven/bun:1-alpine AS base
 
 WORKDIR /usr/src/app
 
 ENV NODE_ENV=production
 
-COPY package*.json ./
+FROM base AS builder
 
-RUN npm ci --omit=dev
+COPY package.json bun.lock ./
+RUN bun ci
 
 COPY . .
+RUN bun run build
 
-RUN npm run build
+FROM base AS runner
 
-EXPOSE 3000
+COPY --from=builder --chown=bun /usr/src/app/.output ./
 
-CMD [ "node", ".output/server/index.mjs" ]
+USER bun
+EXPOSE 3000/tcp
+
+CMD ["bun", "run", "server/index.mjs"]

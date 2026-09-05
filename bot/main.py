@@ -3,65 +3,71 @@ import base64
 import binascii
 import contextlib
 import os
+import re
 import string
-import sys
+import urllib
 from asyncio import sleep
 from datetime import UTC, datetime, time, timedelta
 from random import choice, randint
 from zoneinfo import ZoneInfo
 
+import aiohttp
 import discord
 import feedparser
 import requests
 import wavelink
 from art import text2art
 from discord.commands import option
-from discord.ext import commands, tasks
+from discord.ext import tasks
 from dotenv import load_dotenv
-from pocketbase import PocketBaseError
+from emoji import emoji_count
 from requests.exceptions import RequestException
 
-from generic import logger
-from pb import PB, pb_login
-from ui.message import StoreMessage
+import clients.supabase as sb
+from generic import bert, logger
 from ui.musik import AddBack, RestoreQueue, StopPlayer
+from utils.checks import require_vc
 
 load_dotenv()
 
-bert = commands.Bot(
-	command_prefix="bert ",
-	intents=discord.Intents.all(),
-	# debug_guilds=[870973430114181141, 1182803938517455008],
-)
 
 TZ = ZoneInfo(os.getenv("TZ") or "Europe/Amsterdam")
 
 
-events = []
-CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3/calendars"
-CALENDAR_HOLIDAY = r"nl.dutch%23holiday@group.v.calendar.google.com"
-try:
-	res = requests.get(
-		f"{CALENDAR_BASE_URL}/{CALENDAR_HOLIDAY}/events?key={os.getenv('GOOGLE_API_KEY')}",
-		timeout=10,
-	)
-	res.raise_for_status()
-	events = res.json()["items"]
-except RequestException as error:
-	logger.error("Failed to fetch holidays: %s", error)
 holidays = []
-for event in events:
-	start_date = datetime.strptime(event["start"]["date"], r"%Y-%m-%d").date()
-	if start_date >= datetime.now().date():
-		holidays.append(
-			{
-				"url": event["htmlLink"],
-				"summary": event["summary"],
-				"description": event["description"].split("\n")[0],
-				"start": event["start"]["date"],
-			}
+if GOOGLE_API_KEY := os.getenv("GOOGLE_API_KEY"):
+	CALENDAR_HOLIDAY = r"nl.dutch#holiday@group.v.calendar.google.com"
+	try:
+		res = requests.get(
+			f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(CALENDAR_HOLIDAY)}/events",
+			params={
+				"key": GOOGLE_API_KEY,
+				"timeMin": datetime.now(UTC).replace(microsecond=0).isoformat(),
+				"singleEvents": True,
+				"orderBy": "startTime",
+				"fields": "items(start,summary,description,htmlLink)",
+			},
+			timeout=10,
 		)
-logger.info("Found %s upcoming holidays", len(holidays))
+		res.raise_for_status()
+		events = res.json().get("items", [])
+		for event in events:
+			try:
+				holidays.append(
+					{
+						"url": event["htmlLink"],
+						"summary": event["summary"],
+						"description": event["description"].split("\n")[0],
+						"start": event["start"]["date"],
+					}
+				)
+			except KeyError as error:
+				logger.error("Failed to parse holiday event: %s", error)
+	except RequestException as error:
+		logger.error("Failed to fetch holidays: %s", error)
+	logger.info("Found %s upcoming holidays", len(holidays))
+else:
+	logger.warning("GOOGLE_API_KEY not set, holiday announcements will be disabled")
 
 
 async def connect_nodes():
@@ -116,9 +122,11 @@ async def send_news_rss():
 
 @tasks.loop(time=time(hour=12, minute=00, tzinfo=TZ))
 async def send_holiday():
-	today = datetime.now().date()
+	today = datetime.now(TZ).date()
 	for holiday in holidays.copy():
-		holidate = datetime.strptime(holiday["start"], r"%Y-%m-%d").date()
+		holidate = (
+			datetime.strptime(holiday["start"], r"%Y-%m-%d").astimezone(TZ).date()
+		)
 		if holidate > today:
 			break
 		if holidate == today:
@@ -135,8 +143,8 @@ async def send_holiday():
 
 @tasks.loop(time=time(hour=00, minute=00, second=00, tzinfo=TZ))
 async def happy_new_year():
-	if datetime.now().date() == datetime.now().replace(month=1, day=1).date():
-		text = text2art(f"{datetime.now().year}\nHappy\nNew Year!", "big")
+	if datetime.now(TZ).date() == datetime.now(TZ).replace(month=1, day=1).date():
+		text = text2art(f"{datetime.now(TZ).year}\nHappy\nNew Year!", "big")
 		for guild in bert.guilds:
 			if guild.system_channel:
 				await guild.system_channel.send(f"```{text}```\n# Happy New Year! 🎉🎉")
@@ -144,13 +152,13 @@ async def happy_new_year():
 
 
 async def clean_db():
-	channels = await PB.collection("vcmaker").get_full_list()
-	deleted = 0
-	for channel in channels:
+	response = await sb.client.table("vcmaker").select("channel").execute()
+	deleteChannels = []
+	for channel in response.data:
 		if not bert.get_channel(int(channel["channel"])):
-			await PB.collection("vcmaker").delete(channel["id"])
-			deleted += 1
-	logger.info("Cleaned database (%s rows affected)", deleted)
+			deleteChannels.append(channel["channel"])
+	await sb.client.table("vcmaker").delete().in_("channel", deleteChannels).execute()
+	logger.info("Cleaned database (%s rows affected)", len(deleteChannels))
 
 
 @bert.event
@@ -160,17 +168,25 @@ async def on_ready():
 	logger.info("Connecting to Lavalink nodes")
 	await connect_nodes()
 
-	if not send_news_rss.is_running():
-		logger.info("Starting RSS feed task")
-		send_news_rss.start()
+	disable_public_messages = (
+		os.getenv("DISABLE_PUBLIC_MESSAGES", "false").lower() == "true"
+	)
 
-	if not send_holiday.is_running():
-		logger.info("Starting holiday task")
-		send_holiday.start()
+	if disable_public_messages:
+		logger.info("Public messages are disabled")
 
-	if not happy_new_year.is_running():
-		logger.info("Starting New Year task")
-		happy_new_year.start()
+	if not disable_public_messages:
+		if not send_news_rss.is_running():
+			logger.info("Starting RSS feed task")
+			send_news_rss.start()
+
+		if not send_holiday.is_running():
+			logger.info("Starting holiday task")
+			send_holiday.start()
+
+		if not happy_new_year.is_running():
+			logger.info("Starting New Year task")
+			happy_new_year.start()
 
 	await clean_db()
 
@@ -186,6 +202,89 @@ async def on_message(message: discord.Message):
 	if message.channel.name == "silence":
 		await message.delete()
 		return
+
+	stat_names = [
+		"messages_sent",
+		"words_sent",
+		"characters_sent",
+		"capital_letters_sent",
+		"numbers_used",
+		"links_sent",
+		"users_mentioned",
+		"images_sent",
+		"files_sent",
+		"emojis_used",
+	]
+	stat_values = [
+		1,
+		len(message.content.split()),
+		len(message.content.replace("\n", "").replace(" ", "")),
+		len(re.findall(r"[A-Z]", message.content)),
+		len(re.findall(r"[0-9]", message.content)),
+		len(re.findall(r"https?://[^\s]+", message.content)),
+		len(message.mentions),
+		len(
+			[
+				image
+				for image in message.attachments
+				if (image.content_type or "").startswith("image/")
+			]
+		),
+		len(message.attachments),
+		emoji_count(message.content)
+		+ len(re.findall(r"<a?:\w+:\d+>", message.content)),
+	]
+	filtered_stats = [
+		(name, value) for name, value in zip(stat_names, stat_values) if value != 0
+	]
+	if filtered_stats:
+		names, values = zip(*filtered_stats)
+		await sb.client.rpc(
+			"incr_stats",
+			{
+				"p_user_id": str(message.author.id),
+				"p_guild_id": str(message.guild.id),
+				"p_stat_names": list(names),
+				"p_incr_values": list(values),
+			},
+		).execute()
+	for user in message.mentions:
+		if user.bot:
+			continue
+		await sb.client.rpc(
+			"incr_stats",
+			{
+				"p_user_id": str(user.id),
+				"p_guild_id": str(message.guild.id),
+				"p_stat_names": ["times_mentioned"],
+				"p_incr_values": [1],
+			},
+		).execute()
+
+
+@bert.event
+async def on_reaction_add(reaction: discord.Reaction, user: discord.User):
+	if user.bot or user == reaction.message.author:
+		return
+
+	await sb.client.rpc(
+		"incr_stats",
+		{
+			"p_user_id": str(user.id),
+			"p_guild_id": str(reaction.message.guild.id),
+			"p_stat_names": ["reactions_given"],
+			"p_incr_values": [1],
+		},
+	).execute()
+	await sb.client.rpc(
+		"incr_stats",
+		{
+			"p_user_id": str(reaction.message.author.id),
+			"p_guild_id": str(reaction.message.guild.id),
+			"p_stat_names": ["reactions_received"],
+			"p_incr_values": [1],
+		},
+	).execute()
 
 
 @bert.event
@@ -259,14 +358,20 @@ def get_most_playing_game(vc: discord.VoiceChannel):
 	return max(set(games), key=games.count) if games else None
 
 
-async def determine_temp_vc_name(vc: discord.VoiceChannel) -> str:
+async def determine_temp_vc_name(vc: discord.VoiceChannel) -> str | None:
 	game = get_most_playing_game(vc)
 	if game and len([member for member in vc.members if not member.bot]) > 1:
 		return game
-	result = await PB.collection("vcmaker").get_first(
-		{"filter": f"channel='{str(vc.id)}'"}
+	response = (
+		await sb.client.table("vcmaker")
+		.select("owner")
+		.eq("channel", str(vc.id))
+		.maybe_single()
+		.execute()
 	)
-	owner = await bert.get_or_fetch_user(int(result["owner"]))
+	if not response or not response.data.get("owner"):
+		return None
+	owner = await bert.get_or_fetch(discord.User, int(response.data["owner"]))
 	return f"{owner.display_name}'s VC"
 
 
@@ -307,49 +412,60 @@ async def on_voice_state_update(
 				if player := member.guild.voice_client:
 					await player.disconnect()
 
-				with contextlib.suppress(PocketBaseError):
-					row = await PB.collection("vcmaker").get_first(
-						{
-							"filter": f"channel='{str(before.channel.id)}' && type='TEMPORARY'"
-						}
-					)
-
+				response = (
+					await sb.client.table("vcmaker")
+					.select("channel")
+					.eq("channel", str(before.channel.id))
+					.eq("permanent", False)
+					.maybe_single()
+					.execute()
+				)
+				if response:
 					with contextlib.suppress(
 						discord.errors.HTTPException
 					):  # This event might have triggered again
 						await before.channel.delete()
-					await PB.collection("vcmaker").delete(row["id"])
-			else:
-				with contextlib.suppress(PocketBaseError):
-					await PB.collection("vcmaker").get_first(
-						{
-							"filter": f"channel='{str(before.channel.id)}' && type='TEMPORARY'"
-						}
+					await (
+						sb.client.table("vcmaker")
+						.delete()
+						.eq("channel", response.data["channel"])
+						.execute()
 					)
-					vc_name = await determine_temp_vc_name(before.channel)
+			else:
+				vc_name = await determine_temp_vc_name(before.channel)
+				if vc_name:
 					await edit_vc_name(before.channel, vc_name)
 
 		if after.channel:
-			with contextlib.suppress(PocketBaseError):
-				result = await PB.collection("vcmaker").get_first(
-					{"filter": f"channel='{str(after.channel.id)}'"}
-				)
-				if result["type"] == "PERMANENT":
+			response = (
+				await sb.client.table("vcmaker")
+				.select("permanent")
+				.eq("channel", str(after.channel.id))
+				.maybe_single()
+				.execute()
+			)
+			if response:
+				if response.data["permanent"]:
 					vc = await after.channel.guild.create_voice_channel(
 						f"{member.display_name}'s VC",
 						category=after.channel.category,
 					)
 					await member.move_to(vc)
-					await PB.collection("vcmaker").create(
-						{
-							"channel": str(vc.id),
-							"type": "TEMPORARY",
-							"owner": str(member.id),
-						}
+					await (
+						sb.client.table("vcmaker")
+						.insert(
+							{
+								"channel": str(vc.id),
+								"permanent": False,
+								"owner": str(member.id),
+							}
+						)
+						.execute()
 					)
-				elif result["type"] == "TEMPORARY":
+				else:
 					vc_name = await determine_temp_vc_name(after.channel)
-					await edit_vc_name(after.channel, vc_name)
+					if vc_name:
+						await edit_vc_name(after.channel, vc_name)
 
 
 @bert.event
@@ -359,7 +475,8 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
 
 	if after.voice:
 		vc_name = await determine_temp_vc_name(after.voice.channel)
-		await edit_vc_name(after.voice.channel, vc_name)
+		if vc_name:
+			await edit_vc_name(after.voice.channel, vc_name)
 
 
 @bert.event
@@ -376,7 +493,8 @@ async def on_wavelink_track_end(payload: wavelink.TrackEndEventPayload):
 			bye_sound = await wavelink.Playable.search(
 				f"sounds/{choice(sounds)}", source=None
 			)
-			await payload.player.play(bye_sound[0])
+			if bye_sound:
+				await payload.player.play(bye_sound[0])
 		else:
 			await payload.player.disconnect()
 
@@ -386,46 +504,14 @@ async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
 	logger.info("Lavalink node %s is ready", payload.node.identifier)
 
 
-message_group = bert.create_group(
-	"message",
-	"message storage",
-	integration_types={discord.IntegrationType.user_install},
-)
-
-
-@message_group.command()
-async def store(interaction: discord.Interaction):
-	"""Store a message that can be retrieved later"""
-	await interaction.response.send_modal(StoreMessage())
-
-
-@message_group.command()
-@option("key", description="The key of the message to retrieve")
-async def load(interaction: discord.Interaction, key: str):
-	"""Retrieve a stored message"""
-	try:
-		row = await PB.collection("messages").get_first({"filter": f"id='{key}'"})
-		await interaction.response.send_message(row["message"], ephemeral=True)
-	except PocketBaseError:
-		await interaction.response.send_message(
-			"No message found with that key", ephemeral=True
-		)
-
-
-@message_group.command()
-@option("key", description="The key of the message to delete")
-async def delete(interaction: discord.Interaction, key: str):
-	"""Delete a stored message"""
-	try:
-		await PB.collection("messages").get_first(
-			{"filter": f"id='{key}' && user_id='{str(interaction.user.id)}'"}
-		)
-		await PB.collection("messages").delete(key)
-		await interaction.response.send_message("Message deleted", ephemeral=True)
-	except PocketBaseError:
-		await interaction.response.send_message(
-			"No message found with that key", ephemeral=True
-		)
+@bert.event
+async def on_application_command_error(
+	ctx: discord.ApplicationContext, error: discord.DiscordException
+):
+	if isinstance(error, discord.errors.CheckFailure):
+		return
+	else:
+		raise error
 
 
 @bert.slash_command(integration_types={discord.IntegrationType.user_install})
@@ -517,36 +603,17 @@ async def everythingisawesomebutinkorean(interaction: discord.Interaction):
 
 
 @bert.slash_command()
+@require_vc()
 @option("volume", description="The volume to play the song at (0-1000)")
 async def nevergonnagiveyouup(interaction: discord.Interaction, volume: int = 1000):
 	"""get rickrolled"""
-	if not interaction.user.voice:
-		await interaction.response.send_message(
-			"You are not in a voice channel", ephemeral=True
-		)
-		return
 
 	tracks = await wavelink.Playable.search(
 		"https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 	)
 	track = tracks[0]
 
-	player: wavelink.Player | None = interaction.guild.voice_client
-
-	if not player:
-		try:
-			player = await interaction.user.voice.channel.connect(cls=wavelink.Player)
-		except AttributeError:
-			await interaction.response.send_message(
-				"Please join a voice channel first before using this command.",
-				ephemeral=True,
-			)
-			return
-		except discord.ClientException:
-			await interaction.response.send_message(
-				"I was unable to join this voice channel. Please try again."
-			)
-			return
+	player: wavelink.Player = interaction.guild.voice_client
 
 	player.autoplay = wavelink.AutoPlayMode.partial
 
@@ -886,7 +953,11 @@ async def makevcmaker(
 	vc = await interaction.guild.create_voice_channel(
 		"Join to create VC", category=category
 	)
-	await PB.collection("vcmaker").create({"channel": str(vc.id), "type": "PERMANENT"})
+	await (
+		sb.client.table("vcmaker")
+		.insert({"channel": str(vc.id), "permanent": True})
+		.execute()
+	)
 	await interaction.response.send_message(f"Created {vc.mention}")
 
 
@@ -905,50 +976,20 @@ async def get_videos(ctx: discord.AutocompleteContext):
 @bert.slash_command()
 @option("query", description="what to search for", autocomplete=get_videos)
 @option("channel", description="the voice channel to join (default: yours)")
+@require_vc()
 async def play(
 	interaction: discord.ApplicationContext,
 	query: str,
 	channel: discord.VoiceChannel = None,
 ):
 	"""Play a song or playlist"""
-	if not interaction.user.voice and not channel:
-		await interaction.response.send_message(
-			"You are not in a voice channel", ephemeral=True
-		)
-		return
-
-	if channel and not [member for member in channel.members if not member.bot]:
-		await interaction.response.send_message(
-			"That's an empty voice channel (or it only has bots)!", ephemeral=True
-		)
-		return
 
 	tracks = await wavelink.Playable.search(query)
 	if not tracks:
 		await interaction.response.send_message("No tracks found", ephemeral=True)
 		return
 
-	player: wavelink.Player | None = interaction.guild.voice_client
-
-	if not player:
-		try:
-			if channel:
-				player = await channel.connect(cls=wavelink.Player)
-			else:
-				player = await interaction.user.voice.channel.connect(
-					cls=wavelink.Player
-				)
-		except AttributeError:
-			await interaction.response.send_message(
-				"Please join a voice channel first before using this command.",
-				ephemeral=True,
-			)
-			return
-		except discord.ClientException:
-			await interaction.response.send_message(
-				"I was unable to join this voice channel. Please try again."
-			)
-			return
+	player: wavelink.Player = interaction.guild.voice_client
 
 	player.autoplay = wavelink.AutoPlayMode.partial
 
@@ -964,96 +1005,6 @@ async def play(
 
 	if not player.playing:
 		await player.play(player.queue.get(), volume=30)
-
-
-pl = bert.create_group("pl", "playlists")
-
-
-@pl.command(name="save", description="Save a playlist")
-@option("name", description="The name to store as (default: the playlist name)")
-@option("url", description="The URL of the playlist")
-async def save_playlist(interaction: discord.Interaction, url: str, name: str = None):
-	"""Save a playlist"""
-	result = await wavelink.Playable.search(url)
-	if not isinstance(result, wavelink.Playlist):
-		await interaction.response.send_message("That's not a playlist", ephemeral=True)
-		return
-	name = name or result.name
-	await PB.collection("playlists").create(
-		{"name": name, "url": url, "user_id": str(interaction.user.id)}
-	)
-	await interaction.response.send_message(
-		f"Saved the playlist as **`{name}`**. Use `/pl load` to load it"
-	)
-
-
-async def load_playlists(ctx: discord.AutocompleteContext):
-	"""load the users playlists"""
-	try:
-		playlists = await PB.collection("playlists").get_full_list(
-			{"filter": f"user_id='{ctx.interaction.user.id}'"}
-		)
-		return [
-			discord.OptionChoice(playlist["name"], playlist["id"])
-			for playlist in playlists
-		]
-	except PocketBaseError:
-		return []
-
-
-@pl.command(name="load", description="Load a playlist")
-@option("name", description="The name of the playlist", autocomplete=load_playlists)
-async def load_playlist(interaction: discord.Interaction, name: str):
-	"""Load a playlist"""
-	if not interaction.user.voice:
-		await interaction.response.send_message(
-			"You are not in a voice channel", ephemeral=True
-		)
-		return
-
-	player: wavelink.Player | None = interaction.guild.voice_client
-
-	if not player:
-		try:
-			player = await interaction.user.voice.channel.connect(cls=wavelink.Player)
-		except AttributeError:
-			await interaction.response.send_message(
-				"Please join a voice channel first before using this command.",
-				ephemeral=True,
-			)
-			return
-		except discord.ClientException:
-			await interaction.response.send_message(
-				"I was unable to join this voice channel. Please try again."
-			)
-			return
-
-	row = await PB.collection("playlists").get_first(
-		{"filter": f"id='{name}' && user_id='{str(interaction.user.id)}'"}
-	)
-	playlist = await wavelink.Playable.search(row["url"])
-
-	player.autoplay = wavelink.AutoPlayMode.partial
-
-	await player.queue.put_wait(playlist)
-
-	await interaction.response.send_message(
-		f"Loaded the playlist **`{row['name']}`** ({len(playlist)} songs)"
-	)
-
-	if not player.playing:
-		await player.play(player.queue.get(), volume=30)
-
-
-@pl.command(name="delete", description="Delete a playlist")
-@option("name", description="The name of the playlist", autocomplete=load_playlists)
-async def delete_playlist(interaction: discord.Interaction, name: str):
-	"""Delete a playlist"""
-	row = await PB.collection("playlists").get_first(
-		{"filter": f"id='{name}' && user_id='{str(interaction.user.id)}'"}
-	)
-	await PB.collection("playlists").delete(name)
-	await interaction.response.send_message(f"Deleted the playlist **`{row['name']}`**")
 
 
 @bert.slash_command()
@@ -1140,22 +1091,28 @@ async def volume(interaction: discord.Interaction, volume: int = 30):
 
 
 async def main():
-	try:
-		await pb_login()
-	except PocketBaseError:
-		logger.critical("Failed to login to Pocketbase")
-		sys.exit(111)  # Exit code 111: Connection refused
+	if not os.getenv("BOT_TOKEN"):
+		logger.critical("BOT_TOKEN not set, cannot start Bert")
+		return
+
+	await sb.init_supabase()
 
 	if ollama_url := os.getenv("OLLAMA_URL"):
 		try:
-			res = requests.get(ollama_url + "/api/version", timeout=10)
-			if ollama_version := res.json()["version"]:
-				logger.info("Ollama v%s running, enabling Bert AI", ollama_version)
-				bert.load_extension("ai")
-			else:
-				logger.warning("Ollama doesn't seem to be running on %s", ollama_url)
-				logger.info("AI functionality will be disabled")
-		except RequestException as e:
+			async with (
+				aiohttp.ClientSession() as session,
+				session.get(ollama_url + "/api/version", timeout=10) as res,
+			):
+				res.raise_for_status()
+				if ollama_version := (await res.json()).get("version"):
+					logger.info("Ollama v%s running, enabling Bert AI", ollama_version)
+					bert.load_extension("ai")
+				else:
+					logger.warning(
+						"Ollama doesn't seem to be running on %s", ollama_url
+					)
+					logger.info("AI functionality will be disabled")
+		except (aiohttp.ClientError, RequestException, ValueError, TypeError) as e:
 			logger.warning("Failed to connect to %s %s", ollama_url, e)
 			logger.info("AI functionality will be disabled")
 	else:

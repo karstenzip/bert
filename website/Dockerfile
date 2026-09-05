@@ -10,6 +10,7 @@ COPY package.json bun.lock ./
 RUN bun ci
 
 COPY . .
+RUN bun run postinstall
 RUN bun run build
 
 FROM base AS runner

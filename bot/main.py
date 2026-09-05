@@ -227,7 +227,7 @@ async def on_message(message: discord.Message):
 			[
 				image
 				for image in message.attachments
-				if image.content_type.startswith("image")
+				if (image.content_type or "").startswith("image/")
 			]
 		),
 		len(message.attachments),

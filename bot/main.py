@@ -35,7 +35,7 @@ TZ = ZoneInfo(os.getenv("TZ") or "Europe/Amsterdam")
 
 
 holidays = []
-if GOOGLE_API_KEY := os.getenv("GOOGLE_API_KEY") is not None:
+if GOOGLE_API_KEY := os.getenv("GOOGLE_API_KEY"):
 	CALENDAR_HOLIDAY = r"nl.dutch#holiday@group.v.calendar.google.com"
 	try:
 		res = requests.get(

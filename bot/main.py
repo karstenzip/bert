@@ -52,14 +52,17 @@ if GOOGLE_API_KEY := os.getenv("GOOGLE_API_KEY"):
 		res.raise_for_status()
 		events = res.json().get("items", [])
 		for event in events:
-			holidays.append(
-				{
-					"url": event["htmlLink"],
-					"summary": event["summary"],
-					"description": event["description"].split("\n")[0],
-					"start": event["start"]["date"],
-				}
-			)
+			try:
+				holidays.append(
+					{
+						"url": event["htmlLink"],
+						"summary": event["summary"],
+						"description": event["description"].split("\n")[0],
+						"start": event["start"]["date"],
+					}
+				)
+			except KeyError as error:
+				logger.error("Failed to parse holiday event: %s", error)
 	except RequestException as error:
 		logger.error("Failed to fetch holidays: %s", error)
 	logger.info("Found %s upcoming holidays", len(holidays))

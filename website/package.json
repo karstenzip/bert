@@ -33,7 +33,7 @@
 		"prettier-plugin-tailwindcss": "^0.8.1",
 		"sass": "^1.104.0",
 		"supabase": "^2.116.0",
-		"typescript": "^7.0.2",
+		"typescript": "^6.0.3",
 		"vue-tsc": "^3.3.11"
 	},
 	"trustedDependencies": [

@@ -1,6 +1,7 @@
-from generic import bert
-from cachetools import TTLCache
 from asyncache import cached
+from cachetools import TTLCache
+
+from generic import bert
 
 
 @cached(TTLCache(maxsize=1024, ttl=60 * 60))

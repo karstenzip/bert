@@ -5,13 +5,14 @@ import contextlib
 import os
 import re
 import string
+import urllib
 from asyncio import sleep
 from datetime import UTC, datetime, time, timedelta
 from random import choice, randint
 from zoneinfo import ZoneInfo
 
+import aiohttp
 import discord
-from emoji import emoji_count
 import feedparser
 import requests
 import wavelink
@@ -19,12 +20,13 @@ from art import text2art
 from discord.commands import option
 from discord.ext import tasks
 from dotenv import load_dotenv
+from emoji import emoji_count
 from requests.exceptions import RequestException
 
-from utils.checks import require_vc
 import clients.supabase as sb
 from generic import bert, logger
 from ui.musik import AddBack, RestoreQueue, StopPlayer
+from utils.checks import require_vc
 
 load_dotenv()
 
@@ -32,23 +34,24 @@ load_dotenv()
 TZ = ZoneInfo(os.getenv("TZ") or "Europe/Amsterdam")
 
 
-events = []
-if os.getenv("GOOGLE_API_KEY") is not None:
-	CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3/calendars"
-	CALENDAR_HOLIDAY = r"nl.dutch%23holiday@group.v.calendar.google.com"
+holidays = []
+if GOOGLE_API_KEY := os.getenv("GOOGLE_API_KEY") is not None:
+	CALENDAR_HOLIDAY = r"nl.dutch#holiday@group.v.calendar.google.com"
 	try:
 		res = requests.get(
-			f"{CALENDAR_BASE_URL}/{CALENDAR_HOLIDAY}/events?key={os.getenv('GOOGLE_API_KEY')}",
+			f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(CALENDAR_HOLIDAY)}/events",
+			params={
+				"key": GOOGLE_API_KEY,
+				"timeMin": datetime.now(UTC).replace(microsecond=0).isoformat(),
+				"singleEvents": True,
+				"orderBy": "startTime",
+				"fields": "items(start,summary,description,htmlLink)",
+			},
 			timeout=10,
 		)
 		res.raise_for_status()
-		events = res.json()["items"]
-	except RequestException as error:
-		logger.error("Failed to fetch holidays: %s", error)
-	holidays = []
-	for event in events:
-		start_date = datetime.strptime(event["start"]["date"], r"%Y-%m-%d").date()
-		if start_date >= datetime.now().date():
+		events = res.json().get("items", [])
+		for event in events:
 			holidays.append(
 				{
 					"url": event["htmlLink"],
@@ -57,6 +60,8 @@ if os.getenv("GOOGLE_API_KEY") is not None:
 					"start": event["start"]["date"],
 				}
 			)
+	except RequestException as error:
+		logger.error("Failed to fetch holidays: %s", error)
 	logger.info("Found %s upcoming holidays", len(holidays))
 else:
 	logger.warning("GOOGLE_API_KEY not set, holiday announcements will be disabled")
@@ -114,9 +119,11 @@ async def send_news_rss():
 
 @tasks.loop(time=time(hour=12, minute=00, tzinfo=TZ))
 async def send_holiday():
-	today = datetime.now().date()
+	today = datetime.now(TZ).date()
 	for holiday in holidays.copy():
-		holidate = datetime.strptime(holiday["start"], r"%Y-%m-%d").date()
+		holidate = (
+			datetime.strptime(holiday["start"], r"%Y-%m-%d").astimezone(TZ).date()
+		)
 		if holidate > today:
 			break
 		if holidate == today:
@@ -133,8 +140,8 @@ async def send_holiday():
 
 @tasks.loop(time=time(hour=00, minute=00, second=00, tzinfo=TZ))
 async def happy_new_year():
-	if datetime.now().date() == datetime.now().replace(month=1, day=1).date():
-		text = text2art(f"{datetime.now().year}\nHappy\nNew Year!", "big")
+	if datetime.now(TZ).date() == datetime.now(TZ).replace(month=1, day=1).date():
+		text = text2art(f"{datetime.now(TZ).year}\nHappy\nNew Year!", "big")
 		for guild in bert.guilds:
 			if guild.system_channel:
 				await guild.system_channel.send(f"```{text}```\n# Happy New Year! 🎉🎉")
@@ -165,17 +172,18 @@ async def on_ready():
 	if disable_public_messages:
 		logger.info("Public messages are disabled")
 
-	if not disable_public_messages and not send_news_rss.is_running():
-		logger.info("Starting RSS feed task")
-		send_news_rss.start()
+	if not disable_public_messages:
+		if not send_news_rss.is_running():
+			logger.info("Starting RSS feed task")
+			send_news_rss.start()
 
-	if not disable_public_messages and not send_holiday.is_running():
-		logger.info("Starting holiday task")
-		send_holiday.start()
+		if not send_holiday.is_running():
+			logger.info("Starting holiday task")
+			send_holiday.start()
 
-	if not disable_public_messages and not happy_new_year.is_running():
-		logger.info("Starting New Year task")
-		happy_new_year.start()
+		if not happy_new_year.is_running():
+			logger.info("Starting New Year task")
+			happy_new_year.start()
 
 	await clean_db()
 
@@ -1088,14 +1096,20 @@ async def main():
 
 	if ollama_url := os.getenv("OLLAMA_URL"):
 		try:
-			res = requests.get(ollama_url + "/api/version", timeout=10)
-			if ollama_version := res.json()["version"]:
-				logger.info("Ollama v%s running, enabling Bert AI", ollama_version)
-				bert.load_extension("ai")
-			else:
-				logger.warning("Ollama doesn't seem to be running on %s", ollama_url)
-				logger.info("AI functionality will be disabled")
-		except RequestException as e:
+			async with (
+				aiohttp.ClientSession() as session,
+				session.get(ollama_url + "/api/version", timeout=10) as res,
+			):
+				res.raise_for_status()
+				if ollama_version := (await res.json()).get("version"):
+					logger.info("Ollama v%s running, enabling Bert AI", ollama_version)
+					bert.load_extension("ai")
+				else:
+					logger.warning(
+						"Ollama doesn't seem to be running on %s", ollama_url
+					)
+					logger.info("AI functionality will be disabled")
+		except (aiohttp.ClientError, RequestException, ValueError, TypeError) as e:
 			logger.warning("Failed to connect to %s %s", ollama_url, e)
 			logger.info("AI functionality will be disabled")
 	else:

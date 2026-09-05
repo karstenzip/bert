@@ -1,8 +1,8 @@
+import wavelink
 from discord import ApplicationContext, VoiceChannel
 from discord.ext.commands import check
-from generic import bert
-import wavelink
 
+from generic import bert
 from utils.discord import get_team_members
 
 

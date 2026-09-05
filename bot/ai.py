@@ -4,8 +4,9 @@ from datetime import timedelta
 import discord
 from discord.commands import option
 from discord.ext import commands
-from generic import logger
 from ollama import AsyncClient
+
+from generic import logger
 
 ollama = AsyncClient(os.getenv("OLLAMA_URL"))
 

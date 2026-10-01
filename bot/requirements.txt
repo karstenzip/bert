@@ -9,5 +9,5 @@ feedparser==6.0.14
 PyNaCl==1.6.2
 coloredlogs==15.0.1
 ollama==0.6.2
-emoji==2.15.0
+emoji==2.16.0
 art==6.5

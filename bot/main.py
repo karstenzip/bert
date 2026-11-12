@@ -27,6 +27,7 @@ import clients.supabase as sb
 from generic import bert, logger
 from ui.musik import AddBack, RestoreQueue, StopPlayer
 from utils.checks import require_vc
+from utils.discord import get_team_members
 
 load_dotenv()
 
@@ -301,7 +302,7 @@ async def on_member_join(member: discord.Member):
 			"d'r is er een jarig hoera hoera dat kun je wel zien dat is",
 		)
 		app_info = await bert.application_info()
-		if member in app_info.team.members:
+		if app_info.team and member in app_info.team.members:
 			await member.guild.system_channel.send(
 				f"Ladies and gentlemen, please welcome {app_info.team.name} member **{member.display_name}**"
 			)
@@ -652,7 +653,7 @@ async def mute(interaction: discord.Interaction, user: discord.Member):
 			f"{user.display_name} is already muted", ephemeral=True
 		)
 		return
-	if user.id in unmutables or user in (await bert.application_info()).team.members:
+	if user.id in unmutables or user in (await get_team_members()):
 		await interaction.response.send_message("nuh uh", ephemeral=True)
 		return
 	muted_users.add(user.id)
@@ -682,7 +683,7 @@ async def unmute(interaction: discord.Interaction, user: discord.Member):
 			f"{user.display_name} is not muted", ephemeral=True
 		)
 		return
-	if user.id in unmutables or user in (await bert.application_info()).team.members:
+	if user.id in unmutables or user in (await get_team_members()):
 		await interaction.response.send_message("nuh uh", ephemeral=True)
 		return
 	muted_users.remove(user.id)

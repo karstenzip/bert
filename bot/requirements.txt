@@ -1,13 +1,12 @@
 requests==2.34.2
 py-cord[voice]==2.8.1
 wavelink==3.5.2
-python-dotenv==1.2.3
-supabase==2.31.0
-cachetools==5.5.2 # Held back by asyncache
-asyncache==0.3.1
+python-dotenv==1.2.4
+supabase==2.34.1
+cachetools==8.0.0
 feedparser==6.0.14
 PyNaCl==1.6.2
 coloredlogs==15.0.1
-ollama==0.6.2
+ollama==0.6.3
 emoji==2.16.0
 art==6.5

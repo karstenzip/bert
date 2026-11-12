@@ -18,5 +18,9 @@ coverage.xml
 .mypy_cache
 .pytest_cache
 .hypothesis
+.venv
+.ruff_cache/
+.env
 
+supabase/
 sounds/

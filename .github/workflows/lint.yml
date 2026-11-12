@@ -18,9 +18,39 @@ on:
       - website/**
 
 jobs:
-  eslint:
-    name: ESLint
+  bot:
+    name: Bot
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bot
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          working-directory: bot
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Ruff lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Ruff format
+        run: uv run ruff format --check .
+
+      - name: ty
+        run: uv run ty check
+
+  website:
+    name: Website
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
 
     steps:
       - name: Checkout code
@@ -30,35 +60,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: |
-          cd website
-          bun ci
+        run: bun ci
 
       - name: Run ESLint
-        run: |
-          cd website
-          bun run lint
-
-  ruff:
-    name: Ruff
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Install Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ruff
-
-      - name: Run Ruff
-        run: |
-          cd bot
-          ruff check --output-format=github .
-          ruff format --check .
+        run: bun run lint

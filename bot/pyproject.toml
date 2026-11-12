@@ -1,0 +1,35 @@
+[project]
+name = "bert"
+version = "4.2.0"
+requires-python = ">=3.14"
+dependencies = [
+    "art>=6.5",
+    "cachetools>=8.0.0",
+    "coloredlogs>=15.0.1",
+    "emoji>=2.16.0",
+    "feedparser>=6.0.14",
+    "ollama>=0.6.3",
+    "py-cord[voice]>=2.8.1",
+    "pynacl>=1.6.2",
+    "python-dotenv>=1.2.4",
+    "requests>=2.34.2",
+    "supabase>=2.34.1",
+    "wavelink>=3.5.2",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.5",
+    "ty>=0.0.101",
+]
+
+[tool.uv]
+override-dependencies = [
+    "discord-py ; sys_platform == 'never'",
+]
+
+[tool.ruff]
+extend-exclude = [
+    "database_types.py"
+]
+

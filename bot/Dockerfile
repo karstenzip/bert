@@ -1,36 +1,31 @@
-FROM python:3.13-alpine AS builder
+FROM ghcr.io/astral-sh/uv:python3.14-alpine AS builder
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_DEV=1 \
+    UV_PYTHON_DOWNLOADS=0
 
 WORKDIR /usr/src/app
 
-RUN apk add --no-cache gcc musl-dev libffi-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project
 
-COPY requirements.txt .
+COPY . .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt \
-    && pip uninstall discord.py py-cord -y \
-    # Wavelink depends on discord.py, which conflicts with py-cord, so we
-    # uninstall both and reinstall just py-cord[voice] at the pinned version
-    && pip wheel --no-cache-dir --wheel-dir /wheels \
-    "py-cord[voice]==$(grep 'py-cord\[voice\]' requirements.txt | awk -F'==' '{print $2}')"
-
-FROM python:3.13-alpine
+FROM python:3.14-alpine
 
 WORKDIR /usr/src/app
 
-RUN addgroup -S bert && adduser -S bert -G bert
+RUN addgroup -S bert && adduser -S bert -G bert \
+    && chown bert:bert /usr/src/app
 
-COPY --from=builder /wheels /wheels
-COPY requirements.txt .
-RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
-    && pip uninstall discord.py py-cord -y \
-    && pip install --no-cache-dir --no-index --find-links=/wheels \
-    "py-cord[voice]==$(grep 'py-cord\[voice\]' requirements.txt | awk -F'==' '{print $2}')" \
-    && rm -rf /wheels
+COPY --from=builder --chown=bert:bert /usr/src/app /usr/src/app
 
-COPY --chown=bert:bert . .
-
-RUN chown bert:bert /usr/src/app
+ENV PATH="/usr/src/app/.venv/bin:$PATH"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

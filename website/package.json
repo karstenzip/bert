@@ -9,32 +9,32 @@
 		"preview": "nuxt preview",
 		"postinstall": "nuxt prepare",
 		"lint": "eslint .",
-		"update-types": "supabase gen types --project-id kydqrmqhwfbzbiqeobhi > shared/types/database.ts"
+		"update-types": "supabase gen types --remote=\"kydqrmqhwfbzbiqeobhi\" --schema public > shared/types/database.ts"
 	},
-	"packageManager": "bun@1.4.2",
+	"packageManager": "bun@1.4.4",
 	"dependencies": {
-		"@formkit/auto-animate": "^0.10.0",
-		"@iconify-json/fluent": "^1.2.57",
+		"@formkit/auto-animate": "^0.10.2",
+		"@iconify-json/fluent": "^1.2.61",
 		"@iconify-json/heroicons": "^1.2.3",
 		"@nuxt/eslint": "^1.17.0",
-		"@nuxt/ui": "^4.11.0",
-		"@nuxtjs/supabase": "^2.0.10",
-		"discord-api-types": "0.38.55",
-		"nuxt": "^4.5.2",
-		"zod": "^4.5.4"
+		"@nuxt/ui": "^4.12.0",
+		"@nuxtjs/supabase": "^2.1.0",
+		"discord-api-types": "0.38.59",
+		"nuxt": "^4.6.4",
+		"zod": "^4.6.7"
 	},
 	"devDependencies": {
-		"@nuxt/devtools": "3.4.2",
-		"eslint": "^10.10.0",
+		"@nuxt/devtools": "4.1.0",
+		"eslint": "^10.14.0",
 		"eslint-config-prettier": "^10.1.8",
-		"eslint-plugin-prettier": "^5.5.6",
-		"prettier": "^3.9.6",
+		"eslint-plugin-prettier": "^5.5.7",
+		"prettier": "^3.10.1",
 		"prettier-plugin-organize-imports": "^4.3.0",
 		"prettier-plugin-tailwindcss": "^0.8.1",
-		"sass": "^1.104.0",
-		"supabase": "^2.116.0",
+		"sass": "^1.108.2",
+		"supabase": "^3.1.0",
 		"typescript": "^6.0.3",
-		"vue-tsc": "^3.3.11"
+		"vue-tsc": "^3.3.14"
 	},
 	"trustedDependencies": [
 		"@parcel/watcher",

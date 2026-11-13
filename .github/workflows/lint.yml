@@ -56,7 +56,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Install Node.js
+      - name: Install Bun
         uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies

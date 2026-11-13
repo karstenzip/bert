@@ -8,7 +8,7 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/website"
     schedule:
       interval: "monthly"

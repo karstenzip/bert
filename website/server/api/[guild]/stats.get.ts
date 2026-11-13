@@ -43,7 +43,7 @@ export default defineEventHandler(async (event) => {
 	)
 
 	let batch: { name: string; value: number }[] = []
-	let batchTimeout: NodeJS.Timeout | undefined
+	let batchTimeout: ReturnType<typeof setTimeout> | undefined
 
 	const { data } = await client
 		.from("stats")
